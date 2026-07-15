@@ -1,0 +1,60 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: ${DB_NAME:-nucleagent}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-nucleagent_test}
+      MYSQL_ROOT_HOST: "%"
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MYSQL_HOST_PORT:-13306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # nucleagent-auth:
+  #   build: ../nucleagent-auth
+  #   ports: ["6670:6670", "6678:6678"]
+  #   depends_on: [mysql]
+
+  # nucleagent-core:
+  #   build: ../nucleagent-core
+  #   ports: ["6680:6680", "6688:6688"]
+  #   depends_on: [mysql, redis]
+
+  # nucleagent-executor:
+  #   build: ../nucleagent-executor
+  #   ports: ["6690:6690", "6698:6698"]
+  #   depends_on: [redis]
+
+  # nucleagent-web:
+  #   build: ../nucleagent-web
+  #   ports: ["80:80"]
+  #   depends_on: [nucleagent-core, nucleagent-auth]
+
+volumes:
+  mysql_data:
+  redis_data:
