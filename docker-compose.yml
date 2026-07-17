@@ -48,12 +48,12 @@ services:
   # nucleagent-executor:
   #   build: ../nucleagent-executor
   #   ports: ["6690:6690", "6698:6698"]
-  #   depends_on: [redis]
+  #   depends_on: [nucleagent-core]   # executor 只依赖 core 的 WebSocket，不连 DB/Redis
 
   # nucleagent-web:
   #   build: ../nucleagent-web
   #   ports: ["80:80"]
-  #   depends_on: [nucleagent-core, nucleagent-auth]
+  #   depends_on: [nucleagent-core, nucleagent-auth, nucleagent-executor]  # web 需要加载 executor 子应用
 
 volumes:
   mysql_data:

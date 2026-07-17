@@ -28,6 +28,19 @@ make down            # 停止
 | executor | 6690 | 6698 |
 | web (主壳) | - | 80 |
 
+## Nginx 反向代理
+
+`nucleagent-web` 对外暴露 :80，由 Nginx 按子应用路径前缀反向代理到各子应用前端：
+
+| 路径 | 目标 |
+|------|------|
+| /auth/* | auth 前端 (:6678) |
+| /core/* | core 前端 (:6688) |
+| /executor/* | executor 前端 (:6698) |
+| / | web 主壳自身 |
+
+子应用前端独立部署，Nginx 配置随 deploy repo 维护。
+
 ## 边界
 
 - **Always**: 新增服务必须在 docker-compose.yml 注册
