@@ -1,7 +1,10 @@
-.PHONY: help up down build logs ps clean update update-pull update-deps update-build dev dev-stop
+.PHONY: help up down build logs ps clean update update-pull update-deps update-build dev dev-stop bootstrap
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+bootstrap: ## 新机器一键引导（clone 全部 repo + 初始化环境）
+	@./scripts/bootstrap.sh
 
 up: ## Start MySQL + Redis
 	docker compose up -d mysql redis

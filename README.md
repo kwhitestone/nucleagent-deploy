@@ -24,7 +24,30 @@ nucleagent-web (微前端主壳 :3000)
 
 所有服务基于 Prism Fusion 框架构建，子应用以 iframe 方式加载到主壳。
 
-## 一键命令（Makefile）
+## 新机器一键引导
+
+只需 clone 这一个 repo，运行 bootstrap 会自动 clone 其余 7 个 repo + 初始化环境：
+
+```bash
+git clone git@github.com:kwhitestone/nucleagent-deploy.git
+cd nucleagent-deploy
+./scripts/bootstrap.sh
+# 或 make bootstrap
+```
+
+bootstrap 会：
+1. 在上一级目录 clone 其余 7 个 repo（prism-fusion + nucleagent-{shared,core,auth,executor,web,docs}）
+2. 从 `.env.example` 创建 `.env`（提醒修改密钥）
+3. 同步依赖（go mod tidy + npm install）
+4. 构建验证
+
+完成后：
+```bash
+make dev          # 启动全部服务
+# 访问 http://localhost:3000
+```
+
+## 日常命令（Makefile）
 
 ```bash
 # 一键更新所有 repo（git pull + 依赖同步 + 构建验证）
@@ -46,10 +69,9 @@ make ps             # 查看状态
 make logs           # 查看日志
 ```
 
-## 快速开始
+## 快速开始（已引导过的机器）
 
 ```bash
-cp .env.example .env       # 配置环境变量
 make update                # 更新所有 repo + 依赖 + 构建
 make dev                   # 启动全部服务
 # 访问 http://localhost:3000
@@ -59,7 +81,8 @@ make dev                   # 启动全部服务
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/update.sh` | 更新所有 repo（pull/deps/build 三步） |
+| `scripts/bootstrap.sh` | 新机器引导（clone 全部 repo + 初始化） |
+| `scripts/update.sh` | 更新所有 repo（pull/deps/build） |
 | `scripts/dev.sh` | 启动/停止/查看全部 dev 服务 |
 
 服务日志在 `.dev-logs/<name>.log`（已 gitignore）。
