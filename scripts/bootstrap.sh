@@ -55,7 +55,7 @@ ok "git/go/node/npm 就绪"
 # 1. Clone 所有 repo
 info "Clone 全部 repo 到 $STACK_DIR/..."
 for entry in "${ALL_REPOS[@]}"; do
-  remote="${entry%%:*}"
+  remote="${entry%:*}"
   name="${entry##*:}"
   target="$STACK_DIR/$name"
   if [ -d "$target/.git" ]; then
@@ -98,7 +98,7 @@ echo ""
 echo "下一步："
 echo "  cd $DEPLOY_DIR"
 echo "  make dev          # 启动全部服务（infra + 3 后端 + 4 前端）"
-echo "  # 访问 http://localhost:3000"
+echo "  # 访问 http://localhost:26600"
 echo ""
 echo "  make dev-stop     # 停止全部"
 echo "  make update       # 以后更新代码"

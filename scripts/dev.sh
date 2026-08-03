@@ -8,9 +8,9 @@
 #   ./scripts/dev.sh status  # 查看运行状态
 #
 # 服务清单：
-#   infra:    MySQL(13306) + Redis(16379)  via docker compose
-#   backends: auth(6670) core(6680) executor(6690)  via go run
-#   frontends: shell(3000) auth-web(6678) core-web(6688) executor-web(6698)  via npm run dev
+#   infra:    MySQL(26606) + Redis(26679)  via docker compose
+#   backends: auth(26670) core(26680) executor(26690)  via go run
+#   frontends: shell(26600) auth-web(26678) core-web(26688) executor-web(26698)  via npm run dev
 
 set -uo pipefail
 
@@ -26,16 +26,16 @@ warn()  { echo -e "${YELLOW}!${NC} $1"; }
 
 # 后端服务: name:dir:port
 BACKENDS=(
-  "auth:nucleagent-auth/app/src/server:6670"
-  "core:nucleagent-core/app/src/server:6680"
-  "executor:nucleagent-executor/app/src/server:6690"
+  "auth:nucleagent-auth/app/src/server:26670"
+  "core:nucleagent-core/app/src/server:26680"
+  "executor:nucleagent-executor/app/src/server:26690"
 )
 # 前端服务: name:dir:port
 FRONTENDS=(
-  "shell:nucleagent-web:3000"
-  "auth-web:nucleagent-auth/app/src/web:6678"
-  "core-web:nucleagent-core/app/src/web:6688"
-  "executor-web:nucleagent-executor/app/src/web:6698"
+  "shell:nucleagent-web:26600"
+  "auth-web:nucleagent-auth/app/src/web:26678"
+  "core-web:nucleagent-core/app/src/web:26688"
+  "executor-web:nucleagent-executor/app/src/web:26698"
 )
 
 load_env() {
@@ -43,6 +43,16 @@ load_env() {
   if [ -f "$DEPLOY_DIR/.env" ]; then
     set -a; . "$DEPLOY_DIR/.env"; set +a
   fi
+
+  # .env 里的 DB_HOST/DB_PORT/REDIS_ADDR 是「容器内」视角（供 docker-compose 用）：
+  #   DB_HOST=mysql  DB_PORT=3306  REDIS_ADDR=redis:6379
+  # 但 dev.sh 用 `go run` 在**宿主机**跑后端：宿主机既解析不了 `mysql`/`redis`
+  # 主机名，也不监听 3306/6379——只监听映射出来的 MYSQL_HOST_PORT / REDIS_HOST_PORT。
+  # 因此本地 dev 一律改写为 127.0.0.1 + 宿主端口，否则后端拿到 nil DB 后会在
+  # SeedAdminUser 处 panic（gorm getInstance nil pointer dereference）。
+  export DB_HOST=127.0.0.1
+  export DB_PORT="${MYSQL_HOST_PORT:-26606}"
+  export REDIS_ADDR="127.0.0.1:${REDIS_HOST_PORT:-26679}"
 }
 
 port_running() {
@@ -54,7 +64,7 @@ start_infra() {
   cd "$DEPLOY_DIR"
   docker compose up -d mysql redis
   sleep 3
-  ok "MySQL(13306) + Redis(16379) 启动"
+  ok "MySQL(26606) + Redis(26679) 启动"
 }
 
 start_backend() {
@@ -93,7 +103,7 @@ start_all() {
     start_frontend "$name" "$dir" "$port"
   done
   echo ""
-  ok "全部启动完成。访问 http://localhost:3000"
+  ok "全部启动完成。访问 http://localhost:26600"
   echo "  日志: nucleagent-deploy/.dev-logs/<name>.log"
   echo "  停止: ./scripts/dev.sh stop"
 }

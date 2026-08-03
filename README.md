@@ -6,20 +6,20 @@ Nucleagent 部署配置 + 一键运维脚本。
 
 | 服务 | 后端端口 | 前端端口 |
 |------|---------|---------|
-| MySQL | 13306 | - |
-| Redis | 16379 | - |
-| nucleagent-auth | 6670 | 6678 |
-| nucleagent-core | 6680 | 6688 |
-| nucleagent-executor | 6690 | 6698 |
-| nucleagent-web (微前端主壳) | - | 3000(dev) / 80(prod) |
+| MySQL | 26606 | - |
+| Redis | 26679 | - |
+| nucleagent-auth | 26670 | 26678 |
+| nucleagent-core | 26680 | 26688 |
+| nucleagent-executor | 26690 | 26698 |
+| nucleagent-web (微前端主壳) | - | 26600(dev) / 80(prod) |
 
 ## 架构
 
 ```
-nucleagent-web (微前端主壳 :3000)
-├── auth 子应用 (:6678)  -> auth 后端 (:6670)
-├── core 子应用 (:6688)  -> core 后端 (:6680) <-> executor 后端 (:6690)
-└── executor 子应用 (:6698)
+nucleagent-web (微前端主壳 :26600)
+├── auth 子应用 (:26678)  -> auth 后端 (:26670)
+├── core 子应用 (:26688)  -> core 后端 (:26680) <-> executor 后端 (:26690)
+└── executor 子应用 (:26698)
 ```
 
 所有服务基于 Prism Fusion 框架构建，子应用以 iframe 方式加载到主壳。
@@ -44,7 +44,7 @@ bootstrap 会：
 完成后：
 ```bash
 make dev          # 启动全部服务
-# 访问 http://localhost:3000
+# 访问 http://localhost:26600
 ```
 
 ## 日常命令（Makefile）
@@ -74,7 +74,7 @@ make logs           # 查看日志
 ```bash
 make update                # 更新所有 repo + 依赖 + 构建
 make dev                   # 启动全部服务
-# 访问 http://localhost:3000
+# 访问 http://localhost:26600
 ```
 
 ## 脚本说明

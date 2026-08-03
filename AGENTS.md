@@ -21,11 +21,11 @@ make down            # 停止
 
 | 服务 | 后端 | 前端 |
 |------|------|------|
-| MySQL | 13306 | - |
-| Redis | 16379 | - |
-| auth | 6670 | 6678 |
-| core | 6680 | 6688 |
-| executor | 6690 | 6698 |
+| MySQL | 26606 | - |
+| Redis | 26679 | - |
+| auth | 26670 | 26678 |
+| core | 26680 | 26688 |
+| executor | 26690 | 26698 |
 | web (主壳) | - | 80 |
 
 ## Nginx 反向代理
@@ -34,9 +34,9 @@ make down            # 停止
 
 | 路径 | 目标 |
 |------|------|
-| /auth/* | auth 前端 (:6678) |
-| /core/* | core 前端 (:6688) |
-| /executor/* | executor 前端 (:6698) |
+| /auth/* | auth 前端 (:26678) |
+| /core/* | core 前端 (:26688) |
+| /executor/* | executor 前端 (:26698) |
 | / | web 主壳自身 |
 
 子应用前端独立部署，Nginx 配置随 deploy repo 维护。
