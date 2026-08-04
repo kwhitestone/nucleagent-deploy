@@ -44,15 +44,23 @@ load_env() {
     set -a; . "$DEPLOY_DIR/.env"; set +a
   fi
 
-  # .env 里的 DB_HOST/DB_PORT/REDIS_ADDR 是「容器内」视角（供 docker-compose 用）：
-  #   DB_HOST=mysql  DB_PORT=3306  REDIS_ADDR=redis:6379
-  # 但 dev.sh 用 `go run` 在**宿主机**跑后端：宿主机既解析不了 `mysql`/`redis`
-  # 主机名，也不监听 3306/6379——只监听映射出来的 MYSQL_HOST_PORT / REDIS_HOST_PORT。
-  # 因此本地 dev 一律改写为 127.0.0.1 + 宿主端口，否则后端拿到 nil DB 后会在
-  # SeedAdminUser 处 panic（gorm getInstance nil pointer dereference）。
+  # .env 里的 DB_HOST/DB_PORT/REDIS_ADDR/CORE_URL/EXECUTOR_URL 是「容器内」视角
+  # （供 docker-compose 用，主机名为 service 名）：
+  #   DB_HOST=mysql  CORE_URL=http://nucleagent-core:26680  EXECUTOR_URL=http://nucleagent-executor:26690
+  # 但 dev.sh 用 `go run` 在**宿主机**跑后端：宿主机解析不了这些 service 主机名。
+  # 因此本地 dev 一律改写为 127.0.0.1 + 宿主端口，否则：
+  #   - DB 为 nil → SeedAdminUser panic
+  #   - executor 注册 core → 502（DNS 解析失败）
+  #   - core 调 executor → 同理
   export DB_HOST=127.0.0.1
   export DB_PORT="${MYSQL_HOST_PORT:-26606}"
   export REDIS_ADDR="127.0.0.1:${REDIS_HOST_PORT:-26679}"
+  export CORE_URL="http://localhost:${CORE_PORT:-26680}"
+  export EXECUTOR_URL="http://localhost:${EXECUTOR_PORT:-26690}"
+
+  # 宿主机若有系统代理（HTTP_PROXY 等），Go 的 http.Client 默认会走代理，
+  # 导致服务间 localhost 互调被发到代理端口 → 502。本地 dev 一律关闭代理。
+  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
 }
 
 port_running() {
