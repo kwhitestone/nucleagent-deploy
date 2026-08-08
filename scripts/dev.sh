@@ -3,9 +3,24 @@
 # 一键启动/停止全部本地 dev 服务。
 #
 # 用法：
-#   ./scripts/dev.sh start   # 启动全部（docker infra + 3 后端 + 4 前端）
-#   ./scripts/dev.sh stop    # 停止全部
-#   ./scripts/dev.sh status  # 查看运行状态
+#   ./scripts/dev.sh start [服务名...]   # 启动（无参数=全部；可指定多个服务名）
+#   ./scripts/dev.sh stop  [服务名...]   # 停止（无参数=全部；可指定多个服务名）
+#   ./scripts/dev.sh restart [服务名...] # 重启（无参数=全部；可指定多个服务名）
+#   ./scripts/dev.sh status              # 查看运行状态
+#
+# 支持的服务名（infra 也算）：
+#   infra  mysql  redis
+#   auth  core  executor
+#   shell  auth-web  core-web  executor-web
+#
+# start / restart 支持「停旧起新」——重复跑会先杀掉旧进程再起新的，不会报端口占用。
+#
+# 示例：
+#   ./scripts/dev.sh start executor             # 只启动 executor
+#   ./scripts/dev.sh start core executor        # 同时启动 core 和 executor
+#   ./scripts/dev.sh stop executor              # 只停 executor
+#   ./scripts/dev.sh restart executor           # 只重启 executor
+#   ./scripts/dev.sh restart                    # 重启全部
 #
 # 服务清单：
 #   infra:    MySQL(26606) + Redis(26679)  via docker compose
@@ -77,7 +92,11 @@ start_infra() {
 
 start_backend() {
   local name="$1" dir="$2" port="$3"
-  if port_running "$port"; then warn "$name(:$port) 已在运行，跳过"; return; fi
+  # 停旧起新：若端口已被占用，先停掉旧进程，确保可以重复启动
+  if port_running "$port"; then
+    stop_port "$port" "$name"
+    sleep 1
+  fi
   mkdir -p "$LOG_DIR"
   cd "$STACK_DIR/$dir"
   nohup go run . > "$LOG_DIR/$name.log" 2>&1 &
@@ -87,7 +106,11 @@ start_backend() {
 
 start_frontend() {
   local name="$1" dir="$2" port="$3"
-  if port_running "$port"; then warn "$name(:$port) 已在运行，跳过"; return; fi
+  # 停旧起新：若端口已被占用，先停掉旧进程，确保可以重复启动
+  if port_running "$port"; then
+    stop_port "$port" "$name"
+    sleep 1
+  fi
   mkdir -p "$LOG_DIR"
   cd "$STACK_DIR/$dir"
   nohup npm run dev > "$LOG_DIR/$name.log" 2>&1 &
@@ -157,6 +180,66 @@ stop_all() {
   ok "已停止"
 }
 
+# ---- 单服务名 → 类型/dir/port 解析 ----
+# 回显: backend|frontend|infra  dir(后端/前端)  port   ；infra 只回显 infra
+# 未找到返回非 0
+resolve_service() {
+  local svc="$1"
+  case "$svc" in
+    infra)  echo "infra"; return 0 ;;
+    mysql)  echo "infra-mysql"; return 0 ;;
+    redis)  echo "infra-redis"; return 0 ;;
+  esac
+  for entry in "${BACKENDS[@]}"; do
+    IFS=':' read -r name dir port <<< "$entry"
+    if [ "$name" = "$svc" ]; then echo "backend $dir $port"; return 0; fi
+  done
+  for entry in "${FRONTENDS[@]}"; do
+    IFS=':' read -r name dir port <<< "$entry"
+    if [ "$name" = "$svc" ]; then echo "frontend $dir $port"; return 0; fi
+  done
+  return 1
+}
+
+start_one() {
+  local svc="$1"
+  local resolved; resolved=$(resolve_service "$svc") || {
+    warn "未知服务: $svc（可用: infra mysql redis auth core executor shell auth-web core-web executor-web）"
+    return 1
+  }
+  case "$resolved" in
+    infra)        start_infra ;;
+    infra-mysql)  info "启动 MySQL..."; cd "$DEPLOY_DIR"; docker compose up -d mysql; sleep 3; ok "MySQL(26606) 启动" ;;
+    infra-redis)  info "启动 Redis..."; cd "$DEPLOY_DIR"; docker compose up -d redis; sleep 1; ok "Redis(26679) 启动" ;;
+    backend*)     read -r type dir port <<< "$resolved"; start_backend "$svc" "$dir" "$port" ;;
+    frontend*)    read -r type dir port <<< "$resolved"; start_frontend "$svc" "$dir" "$port" ;;
+  esac
+}
+
+stop_one() {
+  local svc="$1"
+  local resolved; resolved=$(resolve_service "$svc") || {
+    warn "未知服务: $svc（可用: infra mysql redis auth core executor shell auth-web core-web executor-web）"
+    return 1
+  }
+  case "$resolved" in
+    infra)
+      info "停止基础设施..."; cd "$DEPLOY_DIR"; docker compose down 2>/dev/null; ok "基础设施已停止" ;;
+    infra-mysql)
+      info "停止 MySQL..."; cd "$DEPLOY_DIR"; docker compose stop mysql 2>/dev/null; ok "MySQL 已停止" ;;
+    infra-redis)
+      info "停止 Redis..."; cd "$DEPLOY_DIR"; docker compose stop redis 2>/dev/null; ok "Redis 已停止" ;;
+    backend|frontend)
+      read -r type dir port <<< "$resolved"
+      stop_pid "$LOG_DIR/$svc.pid" "$svc"
+      stop_port "$port" "$svc" ;;
+  esac
+}
+
+restart_one() {
+  stop_one "$1" && sleep 1 && start_one "$1"
+}
+
 status_all() {
   info "服务状态:"
   echo -e "  基础设施:"
@@ -174,8 +257,29 @@ status_all() {
 }
 
 case "${1:-}" in
-  start)  start_all ;;
-  stop)   stop_all ;;
+  start)
+    shift
+    load_env
+    if [ $# -eq 0 ]; then
+      start_all
+    else
+      for svc in "$@"; do start_one "$svc"; done
+    fi ;;
+  stop)
+    shift
+    if [ $# -eq 0 ]; then
+      stop_all
+    else
+      for svc in "$@"; do stop_one "$svc"; done
+    fi ;;
+  restart)
+    shift
+    load_env
+    if [ $# -eq 0 ]; then
+      stop_all && sleep 2 && start_all
+    else
+      for svc in "$@"; do restart_one "$svc"; done
+    fi ;;
   status) status_all ;;
-  *) echo "用法: $0 {start|stop|status}"; exit 1 ;;
+  *) echo "用法: $0 {start|stop|restart|status} [服务名...]"; exit 1 ;;
 esac
