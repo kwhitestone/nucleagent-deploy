@@ -10,7 +10,7 @@
 #
 # 支持的服务名（infra 也算）：
 #   infra  mysql  redis
-#   auth  core  executor
+#   auth  storage  core  executor
 #   shell  auth-web  core-web  executor-web
 #
 # start / restart 支持「停旧起新」——重复跑会先杀掉旧进程再起新的，不会报端口占用。
@@ -24,7 +24,7 @@
 #
 # 服务清单：
 #   infra:    MySQL(26606) + Redis(26679)  via docker compose
-#   backends: auth(26670) core(26680) executor(26690)  via go run
+#   backends: auth(26670) storage(26610) core(26680) executor(26690)  via go run
 #   frontends: shell(26600) auth-web(26678) core-web(26688) executor-web(26698)  via npm run dev
 
 set -uo pipefail
@@ -42,6 +42,7 @@ warn()  { echo -e "${YELLOW}!${NC} $1"; }
 # 后端服务: name:dir:port
 BACKENDS=(
   "auth:nucleagent-auth/app/src/server:26670"
+  "storage:nucleagent-storage/app/src/server:26610"
   "core:nucleagent-core/app/src/server:26680"
   "executor:nucleagent-executor/app/src/server:26690"
 )
@@ -72,6 +73,32 @@ load_env() {
   export REDIS_ADDR="127.0.0.1:${REDIS_HOST_PORT:-26679}"
   export CORE_URL="http://localhost:${CORE_PORT:-26680}"
   export EXECUTOR_URL="http://localhost:${EXECUTOR_PORT:-26690}"
+  export STORAGE_URL="http://localhost:${STORAGE_PORT:-26610}"
+  # storage 的 LocalProvider 签发的上传/下载 URL 必须是宿主机可达地址。
+  export STORAGE_LOCAL_BASE_URL="${STORAGE_LOCAL_BASE_URL:-http://localhost:${STORAGE_PORT:-26610}}"
+
+  # ---- CS 存储后端（可选）----
+  # storage 默认走 LocalProvider（本地磁盘），本机开发不需要连 CS。
+  # 要切到 CS：在 .env 里设 STORAGE_PROVIDER=cs 并填好 CS_ACCESS_KEY / CS_SECRET_KEY。
+  #
+  # 凭据**只从 .env 读**，本脚本不写任何默认值 —— 本仓库有 GitHub 远端，
+  # 在这里硬编码 access-key/secret-key 等于把凭据推上公开仓库。
+  # .env 已被 .gitignore 排除，是凭据的唯一落点。
+  export STORAGE_PROVIDER="${STORAGE_PROVIDER:-local}"
+  export CS_HOST="${CS_HOST:-https://cs.101.com/v0.1}"
+  # 下载走 gcdncs（全球 CDN），不是 cdncs —— 配错会导致下载全部 403/404。
+  export CS_CDN_HOST="${CS_CDN_HOST:-https://gcdncs.101.com/v0.1}"
+  # 服务名用 nucleagent（不是 agentia）：它决定 CS 上的顶层目录与签名 token 首段。
+  export CS_SERVER_NAME="${CS_SERVER_NAME:-nucleagent}"
+  export CS_USER_ID="${CS_USER_ID:-0}"
+  # 凭据不设默认值：未配时保持为空，storage 会在启动时 fail fast 并明确报缺哪一项。
+  export CS_ACCESS_KEY="${CS_ACCESS_KEY:-}"
+  export CS_SECRET_KEY="${CS_SECRET_KEY:-}"
+
+  # provider=cs 但凭据为空时早点提示，别让用户等到上传失败才发现。
+  if [ "${STORAGE_PROVIDER}" = "cs" ] && { [ -z "${CS_ACCESS_KEY}" ] || [ -z "${CS_SECRET_KEY}" ]; }; then
+    warn "STORAGE_PROVIDER=cs 但 CS_ACCESS_KEY/CS_SECRET_KEY 未配置；请写入 nucleagent-deploy/.env"
+  fi
 
   # 宿主机若有系统代理（HTTP_PROXY 等），Go 的 http.Client 默认会走代理，
   # 导致服务间 localhost 互调被发到代理端口 → 502。本地 dev 一律关闭代理。
@@ -204,7 +231,7 @@ resolve_service() {
 start_one() {
   local svc="$1"
   local resolved; resolved=$(resolve_service "$svc") || {
-    warn "未知服务: $svc（可用: infra mysql redis auth core executor shell auth-web core-web executor-web）"
+    warn "未知服务: $svc（可用: infra mysql redis auth storage core executor shell auth-web core-web executor-web）"
     return 1
   }
   case "$resolved" in
@@ -219,7 +246,7 @@ start_one() {
 stop_one() {
   local svc="$1"
   local resolved; resolved=$(resolve_service "$svc") || {
-    warn "未知服务: $svc（可用: infra mysql redis auth core executor shell auth-web core-web executor-web）"
+    warn "未知服务: $svc（可用: infra mysql redis auth storage core executor shell auth-web core-web executor-web）"
     return 1
   }
   case "$resolved" in
@@ -229,7 +256,9 @@ stop_one() {
       info "停止 MySQL..."; cd "$DEPLOY_DIR"; docker compose stop mysql 2>/dev/null; ok "MySQL 已停止" ;;
     infra-redis)
       info "停止 Redis..."; cd "$DEPLOY_DIR"; docker compose stop redis 2>/dev/null; ok "Redis 已停止" ;;
-    backend|frontend)
+    # resolve_service 回显的是 "backend <dir> <port>"，必须用 * 通配，
+    # 否则 `stop <单个后端服务>` 永远匹配不上（原写法 backend|frontend 是死分支）。
+    backend*|frontend*)
       read -r type dir port <<< "$resolved"
       stop_pid "$LOG_DIR/$svc.pid" "$svc"
       stop_port "$port" "$svc" ;;
