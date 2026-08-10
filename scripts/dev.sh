@@ -74,6 +74,9 @@ load_env() {
   export CORE_URL="http://localhost:${CORE_PORT:-26680}"
   export EXECUTOR_URL="http://localhost:${EXECUTOR_PORT:-26690}"
   export STORAGE_URL="http://localhost:${STORAGE_PORT:-26610}"
+  # core 前端直连 storage 上传附件（浏览器直传 CS，core 不代理字节流）。
+  # 必须是浏览器可达地址，不能是 docker service 名。
+  export VITE_STORAGE_URL="${VITE_STORAGE_URL:-http://localhost:${STORAGE_PORT:-26610}}"
   # storage 的 LocalProvider 签发的上传/下载 URL 必须是宿主机可达地址。
   export STORAGE_LOCAL_BASE_URL="${STORAGE_LOCAL_BASE_URL:-http://localhost:${STORAGE_PORT:-26610}}"
 
@@ -88,8 +91,10 @@ load_env() {
   export CS_HOST="${CS_HOST:-https://cs.101.com/v0.1}"
   # 下载走 gcdncs（全球 CDN），不是 cdncs —— 配错会导致下载全部 403/404。
   export CS_CDN_HOST="${CS_CDN_HOST:-https://gcdncs.101.com/v0.1}"
-  # 服务名用 nucleagent（不是 agentia）：它决定 CS 上的顶层目录与签名 token 首段。
-  export CS_SERVER_NAME="${CS_SERVER_NAME:-nucleagent}"
+  # 服务名决定 CS 上的顶层目录与签名 token 首段。必须是 agentia ——
+  # CS 凭据绑定在 agentia 服务空间上，nucleagent 复用它；填 nucleagent 会指向
+  # 一个 CS 侧不存在的服务空间，上传直接失败。
+  export CS_SERVER_NAME="${CS_SERVER_NAME:-agentia}"
   export CS_USER_ID="${CS_USER_ID:-0}"
   # 凭据不设默认值：未配时保持为空，storage 会在启动时 fail fast 并明确报缺哪一项。
   export CS_ACCESS_KEY="${CS_ACCESS_KEY:-}"
