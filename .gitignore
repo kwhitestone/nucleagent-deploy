@@ -1,5 +1,6 @@
 # env files
 .env
+.env.bak*
 *.local.env
 
 # IDE
