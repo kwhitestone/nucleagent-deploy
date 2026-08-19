@@ -40,11 +40,14 @@ ok()    { echo -e "${GREEN}✓${NC} $1"; }
 warn()  { echo -e "${YELLOW}!${NC} $1"; }
 
 # 后端服务: name:dir:port
+# executor 不在此列 —— 它走容器方式（见 start_executor）。hermes 及其完整运行时
+# （Python/Playwright/浏览器）只在容器里有：裸跑 go run 缺 hermes 二进制，且宿主机
+# 的 hermes(v0.18.2) 落后于 submodule(v0.19.1)，附件/模型选择这些按新协议开发的
+# 功能只在容器版上验证过。
 BACKENDS=(
   "auth:nucleagent-auth/app/src/server:26670"
   "storage:nucleagent-storage/app/src/server:26610"
   "core:nucleagent-core/app/src/server:26680"
-  "executor:nucleagent-executor/app/src/server:26690"
 )
 # 前端服务: name:dir:port
 FRONTENDS=(
@@ -136,6 +139,49 @@ start_backend() {
   ok "$name 启动 (PID $!, :$port, log: .dev-logs/$name.log)"
 }
 
+# ---- executor：容器方式 ----
+# hermes + 完整运行时（Python/Playwright/浏览器）只在镜像里有。
+# Go 代码更新后需先 cd nucleagent-executor && ./build.sh --skip-hermes 重建镜像。
+EXECUTOR_CONTAINER="nucleagent-executor-dev"
+EXECUTOR_VOLUME="nucleagent-executor-data"   # hermes 的 /opt/data（session 状态，跨重启保留）
+
+executor_image_exists() {
+  docker image inspect nucleagent-executor >/dev/null 2>&1
+}
+
+start_executor() {
+  # 已在跑则先删掉（停旧起新，与其它服务一致）
+  docker rm -f "$EXECUTOR_CONTAINER" >/dev/null 2>&1 || true
+  if ! executor_image_exists; then
+    warn "镜像 nucleagent-executor 不存在，正在构建（首次较慢，hermes 层已缓存则 ~1min）..."
+    (cd "$STACK_DIR/nucleagent-executor" && ./build.sh --skip-hermes) || {
+      warn "镜像构建失败；executor 未启动。可手动构建: cd nucleagent-executor && ./build.sh"
+      return 1
+    }
+  fi
+  local token="${EXECUTOR_TOKEN:-}"
+  if [ -z "$token" ]; then
+    warn "EXECUTOR_TOKEN 未配置（应写入 nucleagent-deploy/.env）；executor 未启动"
+    return 1
+  fi
+  docker volume inspect "$EXECUTOR_VOLUME" >/dev/null 2>&1 || docker volume create "$EXECUTOR_VOLUME" >/dev/null
+  docker run -d --name "$EXECUTOR_CONTAINER" \
+    --add-host=host.docker.internal:host-gateway \
+    -v "${EXECUTOR_VOLUME}:/opt/data" \
+    -e CORE_URL="http://host.docker.internal:${CORE_PORT:-26680}" \
+    -e EXECUTOR_TOKEN="$token" \
+    nucleagent-executor >/dev/null
+  ok "executor 启动 (容器 $EXECUTOR_CONTAINER, log: docker logs $EXECUTOR_CONTAINER)"
+}
+
+stop_executor() {
+  if docker rm -f "$EXECUTOR_CONTAINER" >/dev/null 2>&1; then
+    ok "executor 已停止 (容器 $EXECUTOR_CONTAINER)"
+  else
+    warn "executor 容器未在运行"
+  fi
+}
+
 start_frontend() {
   local name="$1" dir="$2" port="$3"
   # 停旧起新：若端口已被占用，先停掉旧进程，确保可以重复启动
@@ -159,6 +205,8 @@ start_all() {
     IFS=':' read -r name dir port <<< "$entry"
     start_backend "$name" "$dir" "$port"
   done
+  info "启动 executor（容器）..."
+  start_executor
   echo ""
   info "启动前端服务..."
   for entry in "${FRONTENDS[@]}"; do
@@ -167,7 +215,7 @@ start_all() {
   done
   echo ""
   ok "全部启动完成。访问 http://localhost:26600"
-  echo "  日志: nucleagent-deploy/.dev-logs/<name>.log"
+  echo "  日志: 后端/前端在 .dev-logs/<name>.log；executor 用 docker logs $EXECUTOR_CONTAINER"
   echo "  停止: ./scripts/dev.sh stop"
 }
 
@@ -205,6 +253,7 @@ stop_all() {
     stop_pid "$LOG_DIR/$name.pid" "$name"
     stop_port "$port" "$name"
   done
+  stop_executor
   echo ""
   info "停止基础设施..."
   cd "$DEPLOY_DIR"
@@ -221,6 +270,7 @@ resolve_service() {
     infra)  echo "infra"; return 0 ;;
     mysql)  echo "infra-mysql"; return 0 ;;
     redis)  echo "infra-redis"; return 0 ;;
+    executor) echo "executor-container"; return 0 ;;
   esac
   for entry in "${BACKENDS[@]}"; do
     IFS=':' read -r name dir port <<< "$entry"
@@ -243,6 +293,7 @@ start_one() {
     infra)        start_infra ;;
     infra-mysql)  info "启动 MySQL..."; cd "$DEPLOY_DIR"; docker compose up -d mysql; sleep 3; ok "MySQL(26606) 启动" ;;
     infra-redis)  info "启动 Redis..."; cd "$DEPLOY_DIR"; docker compose up -d redis; sleep 1; ok "Redis(26679) 启动" ;;
+    executor-container) start_executor ;;
     backend*)     read -r type dir port <<< "$resolved"; start_backend "$svc" "$dir" "$port" ;;
     frontend*)    read -r type dir port <<< "$resolved"; start_frontend "$svc" "$dir" "$port" ;;
   esac
@@ -261,6 +312,8 @@ stop_one() {
       info "停止 MySQL..."; cd "$DEPLOY_DIR"; docker compose stop mysql 2>/dev/null; ok "MySQL 已停止" ;;
     infra-redis)
       info "停止 Redis..."; cd "$DEPLOY_DIR"; docker compose stop redis 2>/dev/null; ok "Redis 已停止" ;;
+    executor-container)
+      stop_executor ;;
     # resolve_service 回显的是 "backend <dir> <port>"，必须用 * 通配，
     # 否则 `stop <单个后端服务>` 永远匹配不上（原写法 backend|frontend 是死分支）。
     backend*|frontend*)
@@ -283,6 +336,11 @@ status_all() {
     IFS=':' read -r name dir port <<< "$entry"
     if port_running "$port"; then echo -e "    $name (:$port) ${GREEN}✓ 运行${NC}"; else echo -e "    $name (:$port) ${RED}✗ 未运行${NC}"; fi
   done
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${EXECUTOR_CONTAINER}$"; then
+    echo -e "    executor (容器) ${GREEN}✓ 运行${NC}"
+  else
+    echo -e "    executor (容器) ${RED}✗ 未运行${NC}"
+  fi
   echo -e "  前端:"
   for entry in "${FRONTENDS[@]}"; do
     IFS=':' read -r name dir port <<< "$entry"
