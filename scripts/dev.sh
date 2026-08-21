@@ -83,30 +83,9 @@ load_env() {
   # storage 的 LocalProvider 签发的上传/下载 URL 必须是宿主机可达地址。
   export STORAGE_LOCAL_BASE_URL="${STORAGE_LOCAL_BASE_URL:-http://localhost:${STORAGE_PORT:-26610}}"
 
-  # ---- CS 存储后端（可选）----
-  # storage 默认走 LocalProvider（本地磁盘），本机开发不需要连 CS。
-  # 要切到 CS：在 .env 里设 STORAGE_PROVIDER=cs 并填好 CS_ACCESS_KEY / CS_SECRET_KEY。
-  #
-  # 凭据**只从 .env 读**，本脚本不写任何默认值 —— 本仓库有 GitHub 远端，
-  # 在这里硬编码 access-key/secret-key 等于把凭据推上公开仓库。
-  # .env 已被 .gitignore 排除，是凭据的唯一落点。
+  # ---- 存储 ----
+  # storage 走 LocalProvider（本地磁盘），本机开发开箱即用。
   export STORAGE_PROVIDER="${STORAGE_PROVIDER:-local}"
-  export CS_HOST="${CS_HOST:-https://cs.101.com/v0.1}"
-  # 下载走 gcdncs（全球 CDN），不是 cdncs —— 配错会导致下载全部 403/404。
-  export CS_CDN_HOST="${CS_CDN_HOST:-https://gcdncs.101.com/v0.1}"
-  # 服务名决定 CS 上的顶层目录与签名 token 首段。必须是 agentia ——
-  # CS 凭据绑定在 agentia 服务空间上，nucleagent 复用它；填 nucleagent 会指向
-  # 一个 CS 侧不存在的服务空间，上传直接失败。
-  export CS_SERVER_NAME="${CS_SERVER_NAME:-agentia}"
-  export CS_USER_ID="${CS_USER_ID:-0}"
-  # 凭据不设默认值：未配时保持为空，storage 会在启动时 fail fast 并明确报缺哪一项。
-  export CS_ACCESS_KEY="${CS_ACCESS_KEY:-}"
-  export CS_SECRET_KEY="${CS_SECRET_KEY:-}"
-
-  # provider=cs 但凭据为空时早点提示，别让用户等到上传失败才发现。
-  if [ "${STORAGE_PROVIDER}" = "cs" ] && { [ -z "${CS_ACCESS_KEY}" ] || [ -z "${CS_SECRET_KEY}" ]; }; then
-    warn "STORAGE_PROVIDER=cs 但 CS_ACCESS_KEY/CS_SECRET_KEY 未配置；请写入 nucleagent-deploy/.env"
-  fi
 
   # 宿主机若有系统代理（HTTP_PROXY 等），Go 的 http.Client 默认会走代理，
   # 导致服务间 localhost 互调被发到代理端口 → 502。本地 dev 一律关闭代理。
